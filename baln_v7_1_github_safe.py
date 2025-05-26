@@ -2,94 +2,118 @@
 from datetime import datetime, timedelta
 import calendar
 
+# --- Configuration: Canonical Recurring Expenses ---
+EXPENSES = [
+    {"name": "Mortgage", "amount": 2328.00, "due_day": 1},
+    {"name": "Auto Payment", "amount": 521.34, "due_day": 23},
+    {"name": "Spotify", "amount": 19.99, "due_day": 3},
+    {"name": "Google Workspace", "amount": 13.01, "due_day": 3},
+    {"name": "Life Insurance", "amount": 123.00, "due_day": 6},
+]
+
+HOUSEKEEPING_START = datetime(2025, 4, 7)
+HOUSEKEEPING_AMOUNT = 150.00
+HAIRCUT_AMOUNT = 50.00
+
+# --- Helper Functions ---
 def shift_if_weekend(date_obj):
-    if date_obj.weekday() == 5:  # Saturday
+    if date_obj.weekday() == 5:
         return date_obj + timedelta(days=2)
-    elif date_obj.weekday() == 6:  # Sunday
+    elif date_obj.weekday() == 6:
         return date_obj + timedelta(days=1)
     return date_obj
 
-def validate_baln(today_date, next_paycheck_date):
+def next_paycheck_after(date):
+    offset = (1 - date.weekday() + 7) % 7  # 1 = Tuesday
+    candidate = date + timedelta(days=offset)
+    while candidate <= date:
+        candidate += timedelta(14)
+    return candidate
+
+def format_markdown_table(expenses):
+    lines = ["| Name | Amount | Due Date | Shifted |", "|------|--------|----------|---------|"]
+    for e in expenses:
+        lines.append(f"| {e['Name']} | ${e['Amount']:.2f} | {e['Due Date']} | {e['Shifted']} |")
+    return "\n".join(lines)
+
+# --- Main Function ---
+def run_baln(today=None):
+    if today is None:
+        today = datetime.today()
+
     # Validate weekday
-    weekday_calendar = calendar.day_name[today_date.weekday()]
-    weekday_strftime = today_date.strftime('%A')
-    if weekday_calendar != weekday_strftime:
-        raise ValueError("Weekday mismatch between calendar lookup and strftime.")
-    return {
-        "today": today_date,
-        "weekday": weekday_calendar,
-        "window_start": today_date,
-        "window_end": next_paycheck_date - timedelta(days=1)
-    }
+    derived_weekday = calendar.day_name[today.weekday()]
+    if derived_weekday != today.strftime('%A'):
+        raise ValueError("❌ Weekday mismatch between calendar and strftime.")
 
-def generate_baln_output():
-    # Example hardcoded dates for demonstration; replace as needed
-    today = datetime.today()
-    next_paycheck = today + timedelta(days=(14 - today.weekday() + 1) % 14)
+    next_check = next_paycheck_after(today)
+    window_end = next_check - timedelta(days=1)
+    included = []
+    validation_errors = []
 
-    # Validate
-    validation = validate_baln(today, next_paycheck)
-    today = validation["today"]
-    baln_window_end = validation["window_end"]
-
-    # Canonical example expenses
-    expenses = [
-        {"name": "Mortgage", "amount": 2328.00, "due_day": 1},
-        {"name": "Auto Payment", "amount": 521.34, "due_day": 23},
-        {"name": "Spotify", "amount": 19.99, "due_day": 3},
-        {"name": "Google Workspace", "amount": 13.01, "due_day": 3},
-        {"name": "Life Insurance", "amount": 123.00, "due_day": 6},
-    ]
-
-    included_expenses = []
-    for exp in expenses:
-        due_date = datetime(today.year, today.month, exp["due_day"])
-        shifted_due = shift_if_weekend(due_date)
-        if today <= shifted_due <= baln_window_end:
-            included_expenses.append({
+    # Step 1: Fixed Expenses
+    expected_inclusions = []
+    for exp in EXPENSES:
+        due = datetime(today.year, today.month, exp["due_day"])
+        shifted_due = shift_if_weekend(due)
+        if today <= shifted_due <= window_end:
+            included.append({
                 "Name": exp["name"],
                 "Amount": exp["amount"],
                 "Due Date": shifted_due.strftime('%Y-%m-%d'),
-                "Shifted": "*" if shifted_due.day != exp["due_day"] else ""
+                "Shifted": "*" if shifted_due != due else ""
             })
+            expected_inclusions.append(exp["name"])
+        elif exp["name"] in ["Mortgage", "Auto Payment"] and today <= shifted_due <= window_end:
+            validation_errors.append(f"❌ {exp['name']} due {shifted_due.date()} should be included but is missing.")
 
-    # Haircut logic (one Friday per BALN window)
-    for i in range(0, 8):
-        test_date = today + timedelta(days=i)
-        if test_date.weekday() == 4 and today <= test_date <= baln_window_end:
-            included_expenses.append({
+    # Step 2: Haircut
+    haircut_added = False
+    for i in range(8):
+        d = today + timedelta(days=i)
+        if d.weekday() == 4 and today <= d <= window_end:
+            included.append({
                 "Name": "Haircut",
-                "Amount": 50.00,
-                "Due Date": test_date.strftime('%Y-%m-%d'),
+                "Amount": HAIRCUT_AMOUNT,
+                "Due Date": d.strftime('%Y-%m-%d'),
                 "Shifted": ""
             })
+            haircut_added = True
             break
+    if not haircut_added:
+        validation_errors.append("❌ Haircut for next Friday not scheduled (if within window).")
 
-    # Biweekly housekeeping (example logic)
-    housekeeping_start = datetime(2025, 4, 7)
-    cursor = housekeeping_start
-    while cursor <= baln_window_end:
+    # Step 3: Housekeeping (biweekly)
+    cursor = HOUSEKEEPING_START
+    while cursor <= window_end:
         if cursor >= today:
             shifted = shift_if_weekend(cursor)
-            if today <= shifted <= baln_window_end:
-                included_expenses.append({
+            if today <= shifted <= window_end:
+                included.append({
                     "Name": "Housekeeping",
-                    "Amount": 150.00,
+                    "Amount": HOUSEKEEPING_AMOUNT,
                     "Due Date": shifted.strftime('%Y-%m-%d'),
                     "Shifted": "*" if shifted != cursor else ""
                 })
         cursor += timedelta(days=14)
 
-    # Final output
-    included_expenses.sort(key=lambda x: x["Due Date"])
-    total = sum(e["Amount"] for e in included_expenses)
+    # Final Sort
+    included.sort(key=lambda x: x["Due Date"])
+    total = sum(e["Amount"] for e in included)
 
-    return included_expenses, total, validation["weekday"]
+    # Final Validation
+    if validation_errors:
+        print("❌ BALN VALIDATION FAILED:")
+        for err in validation_errors:
+            print("-", err)
+        return
 
-# If running as script
-if __name__ == "__main__":
-    from pprint import pprint
-    expenses, total, weekday = generate_baln_output()
-    print(f"Weekday confirmed: {weekday}")
-    pprint(expenses)
-    print(f"TOTAL NEEDED: ${total:.2f}")
+    # Markdown Output
+    print("✅ BALN VALIDATION PASSED")
+    print(f"**Date:** {today.strftime('%Y-%m-%d')} ({derived_weekday})")
+    print(f"**BALN Window:** {today.strftime('%Y-%m-%d')} → {window_end.strftime('%Y-%m-%d')}")
+    print(f"**Total Needed:** ${total:.2f}\n")
+    print(format_markdown_table(included))
+
+# Uncomment below to run directly
+# run_baln()
