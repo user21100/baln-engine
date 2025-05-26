@@ -1,0 +1,22 @@
+name: Sync BALN Script to Dropbox
+
+on:
+  push:
+    paths:
+      - 'baln_v7_2_display.py'
+
+jobs:
+  upload-to-dropbox:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Upload BALN script to Dropbox
+        run: |
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer ${{ secrets.DROPBOX_ACCESS_TOKEN }}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/baln_v7_2_display.py\",\"mode\": \"overwrite\"}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @"baln_v7_2_display.py"
