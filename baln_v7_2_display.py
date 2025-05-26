@@ -1,13 +1,12 @@
-
 from datetime import datetime, timedelta
 import calendar
 
 EXPENSES = [
-    {"name": "Mortgage", "amount": 2328.00, "due_day": 1},
-    {"name": "Auto Payment", "amount": 521.34, "due_day": 23},
-    {"name": "Spotify", "amount": 19.99, "due_day": 3},
-    {"name": "Google Workspace", "amount": 13.01, "due_day": 3},
-    {"name": "Life Insurance", "amount": 123.00, "due_day": 6},
+    {"name": "Mortgage", "amount": 2328.00, "due_day": 1, "critical": True},
+    {"name": "Auto Payment", "amount": 521.34, "due_day": 23, "critical": True},
+    {"name": "Spotify", "amount": 19.99, "due_day": 3, "critical": False},
+    {"name": "Google Workspace", "amount": 13.01, "due_day": 3, "critical": False},
+    {"name": "Life Insurance", "amount": 123.00, "due_day": 6, "critical": False},
 ]
 
 HOUSEKEEPING_START = datetime(2025, 4, 7)
@@ -22,7 +21,7 @@ def shift_if_weekend(date_obj):
     return date_obj
 
 def next_paycheck_after(date):
-    offset = (1 - date.weekday() + 7) % 7  # 1 = Tuesday
+    offset = (1 - date.weekday() + 7) % 7  # Tuesday = 1
     candidate = date + timedelta(days=offset)
     while candidate <= date:
         candidate += timedelta(days=14)
@@ -47,33 +46,29 @@ def run_baln(today=None):
     included = []
     validation_errors = []
 
-    expected = []
-
-    # Fixed expenses
+    # Project and include eligible expenses dynamically
     for exp in EXPENSES:
-        due = datetime(today.year, today.month, exp["due_day"])
-        shifted = shift_if_weekend(due)
-        if today <= shifted <= window_end:
+        due_raw = datetime(today.year, today.month, exp["due_day"])
+        due_shifted = shift_if_weekend(due_raw)
+        if today <= due_shifted <= window_end:
             included.append({
                 "Name": exp["name"],
                 "Amount": exp["amount"],
-                "Due Date": shifted.strftime('%Y-%m-%d'),
-                "Shifted": "*" if shifted != due else ""
+                "Due Date": due_shifted.strftime('%Y-%m-%d'),
+                "Shifted": "*" if due_raw != due_shifted else ""
             })
-            expected.append(exp["name"])
-        elif exp["name"] in ["Mortgage", "Auto Payment"]:
-            if today <= shifted <= window_end:
-                validation_errors.append(f"{exp['name']} due {shifted.date()} should be included but is missing.")
+        elif exp["critical"] and today <= due_shifted <= window_end:
+            validation_errors.append(f"{exp['name']} due {due_shifted.date()} was not included.")
 
-    # Haircut
+    # Haircut logic
     haircut_added = False
     for i in range(8):
-        d = today + timedelta(days=i)
-        if d.weekday() == 4 and today <= d <= window_end:
+        check = today + timedelta(days=i)
+        if check.weekday() == 4 and today <= check <= window_end:
             included.append({
                 "Name": "Haircut",
                 "Amount": HAIRCUT_AMOUNT,
-                "Due Date": d.strftime('%Y-%m-%d'),
+                "Due Date": check.strftime('%Y-%m-%d'),
                 "Shifted": ""
             })
             haircut_added = True
@@ -81,7 +76,7 @@ def run_baln(today=None):
     if not haircut_added:
         validation_errors.append("Haircut for next Friday not scheduled (if within window).")
 
-    # Housekeeping
+    # Housekeeping logic
     cursor = HOUSEKEEPING_START
     while cursor <= window_end:
         if cursor >= today:
@@ -116,4 +111,3 @@ def run_baln(today=None):
         "expenses": included,
         "markdown": format_markdown_table(included)
     }
-
