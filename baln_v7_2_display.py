@@ -46,7 +46,6 @@ def run_baln(today=None):
     included = []
     validation_errors = []
 
-    # Project and include eligible expenses dynamically
     for exp in EXPENSES:
         due_raw = datetime(today.year, today.month, exp["due_day"])
         due_shifted = shift_if_weekend(due_raw)
@@ -60,7 +59,6 @@ def run_baln(today=None):
         elif exp["critical"] and today <= due_shifted <= window_end:
             validation_errors.append(f"{exp['name']} due {due_shifted.date()} was not included.")
 
-    # Haircut logic
     haircut_added = False
     for i in range(8):
         check = today + timedelta(days=i)
@@ -76,7 +74,6 @@ def run_baln(today=None):
     if not haircut_added:
         validation_errors.append("Haircut for next Friday not scheduled (if within window).")
 
-    # Housekeeping logic
     cursor = HOUSEKEEPING_START
     while cursor <= window_end:
         if cursor >= today:
@@ -99,7 +96,8 @@ def run_baln(today=None):
             "errors": validation_errors,
             "date": today.strftime('%Y-%m-%d'),
             "window": [today.strftime('%Y-%m-%d'), window_end.strftime('%Y-%m-%d')],
-            "weekday": derived_weekday
+            "weekday": derived_weekday,
+            "render_markdown": False
         }
 
     return {
@@ -109,5 +107,6 @@ def run_baln(today=None):
         "weekday": derived_weekday,
         "total": total,
         "expenses": included,
-        "markdown": format_markdown_table(included)
+        "markdown": format_markdown_table(included),
+        "render_markdown": True
     }
