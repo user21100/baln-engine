@@ -40,7 +40,7 @@ def run_baln(today=None):
 
     derived_weekday = calendar.day_name[today.weekday()]
     if derived_weekday != today.strftime('%A'):
-        raise ValueError("❌ Weekday mismatch between calendar and strftime.")
+        return {"status": "FAIL", "error": "Weekday mismatch between calendar and strftime."}
 
     next_check = next_paycheck_after(today)
     window_end = next_check - timedelta(days=1)
@@ -63,7 +63,7 @@ def run_baln(today=None):
             expected.append(exp["name"])
         elif exp["name"] in ["Mortgage", "Auto Payment"]:
             if today <= shifted <= window_end:
-                validation_errors.append(f"❌ {exp['name']} due {shifted.date()} missing.")
+                validation_errors.append(f"{exp['name']} due {shifted.date()} should be included but is missing.")
 
     # Haircut
     haircut_added = False
@@ -79,7 +79,7 @@ def run_baln(today=None):
             haircut_added = True
             break
     if not haircut_added:
-        validation_errors.append("❌ Haircut for next Friday not scheduled (if within window).")
+        validation_errors.append("Haircut for next Friday not scheduled (if within window).")
 
     # Housekeeping
     cursor = HOUSEKEEPING_START
@@ -99,15 +99,21 @@ def run_baln(today=None):
     total = sum(e["Amount"] for e in included)
 
     if validation_errors:
-        print("❌ BALN VALIDATION FAILED:")
-        for err in validation_errors:
-            print("-", err)
-        return None, None, None
+        return {
+            "status": "FAIL",
+            "errors": validation_errors,
+            "date": today.strftime('%Y-%m-%d'),
+            "window": [today.strftime('%Y-%m-%d'), window_end.strftime('%Y-%m-%d')],
+            "weekday": derived_weekday
+        }
 
-    print("✅ BALN VALIDATION PASSED")
-    print(f"**Date:** {today.strftime('%Y-%m-%d')} ({derived_weekday})")
-    print(f"**BALN Window:** {today.strftime('%Y-%m-%d')} → {window_end.strftime('%Y-%m-%d')}")
-    print(f"**Total Needed:** ${total:.2f}\n")
-    print(format_markdown_table(included))
+    return {
+        "status": "PASS",
+        "date": today.strftime('%Y-%m-%d'),
+        "window": [today.strftime('%Y-%m-%d'), window_end.strftime('%Y-%m-%d')],
+        "weekday": derived_weekday,
+        "total": total,
+        "expenses": included,
+        "markdown": format_markdown_table(included)
+    }
 
-    return included, total, derived_weekday
